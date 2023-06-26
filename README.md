@@ -1,6 +1,6 @@
 # vac-enc
 
-Versatile Audio Codec (Advanced Opus encoder based on opusenc)
+Versatile Audio Codec (Advanced Opus encoder)
 
 Build instructions:
 ```
