@@ -72,6 +72,7 @@ int main(int argc, char **argv)
 	quality.phase_response = 50;
 	quality.passband_end = 0.913;
 	quality.stopband_begin = 1;
+	quality.e = 0;
 	quality.flags = SOXR_ROLLOFF_NONE;
 	resampler = soxr_create(sample_rate, 48000, channels, &soxerr, &io, &quality, NULL);
 	if (!resampler) {
