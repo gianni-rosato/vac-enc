@@ -1,6 +1,6 @@
 # vac-enc
 
-Versatile Audio Codec (Opus encoding using the SoX resampler)
+Opus encoding using the SoX resampler.
 
 Build instructions:
 ```
