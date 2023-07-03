@@ -13,10 +13,8 @@
 
 int main(int argc, char **argv)
 {
-	char *infile = argv[1];
 	void *wav;
 	int format, sample_rate, channels, word_length;
-	float br = atof(argv[3]);
 
 	soxr_t resampler;
 	soxr_error_t soxerr;
@@ -29,11 +27,12 @@ int main(int argc, char **argv)
 	const char *opusver = opus_get_version_string();
 	const char *opusencver = ope_get_version_string();
 
-	if (argc != 4 || br > 512 || br < 1) {
+	if (argc != 4) {
 		fprintf(stderr, "vac-enc DEMONSTRATOR BUILD (using %s, %s, libsoxr %s)\n", opusver, opusencver, SOXR_THIS_VERSION_STR);
 		fprintf(stderr, "usage: %s <WAVE input> <Ogg Opus output> <kbps>\n", argv[0]);
 		return 1;
   	}
+	char *infile = argv[1];
 	wav = wav_read_open(infile);
 	if (!wav) {
 		fprintf(stderr, "Unable to open input file\n");
@@ -73,6 +72,7 @@ int main(int argc, char **argv)
 	quality.phase_response = 50;
 	quality.passband_end = 0.913;
 	quality.stopband_begin = 1;
+	quality.e = 0;
 	quality.flags = SOXR_ROLLOFF_NONE;
 	resampler = soxr_create(sample_rate, 48000, channels, &soxerr, &io, &quality, NULL);
 	if (!resampler) {
@@ -97,7 +97,7 @@ int main(int argc, char **argv)
 		wav_read_close(wav);
 		return 1;
 	}
-	opusencerr = ope_encoder_ctl(enc, OPUS_SET_BITRATE((int)(br*1000)));
+	opusencerr = ope_encoder_ctl(enc, OPUS_SET_BITRATE((int)(atof(argv[3])*1000)));
 	opusencerr = ope_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
 	opusencerr = ope_encoder_ctl(enc, OPE_SET_COMMENT_PADDING(0));
 	if (word_length < 24)
