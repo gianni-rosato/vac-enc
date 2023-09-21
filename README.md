@@ -10,3 +10,4 @@ cd vac-enc
 ./configure
 make
 ```
+Also included is the `vac-auto` script, which can convert from various filetypes with FFmpeg
