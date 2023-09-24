@@ -9,7 +9,7 @@
 
 #include "wavreader.h"
 
-#define BUFFER_SAMPLES 48000
+#define BUFFER_SAMPLES 96000
 
 int main(int argc, char **argv)
 {
