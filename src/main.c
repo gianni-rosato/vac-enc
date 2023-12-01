@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 		opusencerr = ope_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(word_length));		
 
 	const int bytes_per_sample = word_length/8;
-	const size_t ilen = (double)(BUFFER_SAMPLES*sample_rate/48000);
+	const size_t ilen = BUFFER_SAMPLES/48000*sample_rate;
 	const size_t olen = BUFFER_SAMPLES;
 	size_t idone, odone;
 	void *ibuf = malloc(ilen*channels*bytes_per_sample);
