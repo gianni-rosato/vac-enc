@@ -21,3 +21,5 @@ pkg_check_modules(dep3 REQUIRED IMPORTED_TARGET SOXR)
 include_directories (${PROJECT_SOURCE_DIR}/src)
 
 add_subdirectory (src/)
+
+set_target_properties(vac-enc PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin")
