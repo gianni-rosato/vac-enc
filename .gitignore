@@ -1,0 +1,11 @@
+# macOS-specific
+.DS_Store
+
+# Zig-specific
+zig-cache/
+zig-out/
+/release/
+/debug/
+/build/
+/build-*/
+/docgen_tmp/

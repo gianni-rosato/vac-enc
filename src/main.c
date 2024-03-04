@@ -101,7 +101,7 @@ int main(int argc, char **argv)
 	opusencerr = ope_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
 	opusencerr = ope_encoder_ctl(enc, OPE_SET_COMMENT_PADDING(0));
 	if (word_length < 24)
-		opusencerr = ope_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(word_length));		
+		opusencerr = ope_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(word_length));
 
 	const int bytes_per_sample = word_length/8;
 	const size_t ilen = BUFFER_SAMPLES/48000*sample_rate;
