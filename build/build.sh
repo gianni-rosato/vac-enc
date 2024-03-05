@@ -3,5 +3,5 @@
 # Exit if any commands fail
 set -e
 
-cmake ..
+cmake --fresh ..
 cmake --build . --parallel 2
