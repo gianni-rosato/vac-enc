@@ -11,9 +11,9 @@ include_directories(${PROJECT_SOURCE_DIR}/src)
 
 find_package(PkgConfig REQUIRED)
 
-pkg_check_modules(dep1 REQUIRED IMPORTED_TARGET OPUS)
-pkg_check_modules(dep2 REQUIRED IMPORTED_TARGET LIBOPUSENC)
-pkg_check_modules(dep3 REQUIRED IMPORTED_TARGET SOXR)
+pkg_check_modules(dep1 REQUIRED IMPORTED_TARGET opus)
+pkg_check_modules(dep2 REQUIRED IMPORTED_TARGET libopusenc)
+pkg_check_modules(dep3 REQUIRED IMPORTED_TARGET soxr)
 
 add_executable(vac-enc src/main.c src/wavreader.c)
 
