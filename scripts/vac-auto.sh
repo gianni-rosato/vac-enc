@@ -17,13 +17,13 @@ lt=$(openssl rand --hex 4)
 fnme="$lt"."$extension"
 cp "$in" "/dev/shm/$fnme"
 
-# Convert input to 16-bit WAV
-at=$(/usr/bin/time -f "%e" ffmpeg -hide_banner -loglevel panic -y -i "/dev/shm/$fnme" -c:a pcm_s16le "/dev/shm/$lt.wav" 2>&1)
+# Convert input to FLAC
+at=$(/usr/bin/time -f "%e" ffmpeg -hide_banner -loglevel panic -y -i "/dev/shm/$fnme" "/dev/shm/$lt.flac" 2>&1)
 echo -n "."
 
-# Convert WAV to Opus via vac
-bt=$(/usr/bin/time -f "%e" vac-enc "/dev/shm/$lt.wav" "/dev/shm/$lt-temp.opus" "$bitrate" 2>&1)
-rm "/dev/shm/$lt.wav"
+# Convert FLAC to Opus via vac-enc
+bt=$(/usr/bin/time -f "%e" vac-enc "-b$bitrate" "/dev/shm/$lt.flac" "/dev/shm/$lt-temp.opus" 2>&1)
+rm "/dev/shm/$lt.flac"
 echo -n "."
 
 # Copy metadata from input -> Opus

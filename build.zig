@@ -2,36 +2,38 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const strip = b.option(bool, "strip", "Whether to strip symbols from the binary, defaults to true") orelse true;
 
-    // create the executable
-    const exe = b.addExecutable(.{
+    const bin = b.addExecutable(.{
         .name = "vac-enc",
         .target = target,
-        .optimize = optimize,
+        .optimize = .ReleaseFast, // Enforce ReleaseFast as the default
+        .link_libc = true,
+        .strip = strip,
     });
 
-    // include the "include" directory containing wavreader.h
-    exe.addIncludePath(.{ .path = "include" });
+    // If using Windows, add the include path for the win32 directory
+    if (target.result.os.tag == .windows) {
+        bin.addIncludePath(b.path("win32"));
+    }
 
-    // add our C source files, main.c & wavreader.c
-    exe.addCSourceFiles(.{
+    bin.addCSourceFiles(.{
         .files = &.{
+            "src/decode.c",
+            "src/flac.c",
             "src/main.c",
+            "src/unicode_support.c",
             "src/wavreader.c",
         },
         .flags = &.{
             "-std=c99",
+            "-D_POSIX_C_SOURCE=200809L",
         },
     });
 
-    // link libc
-    exe.linkLibC();
+    bin.linkSystemLibrary("libopusenc");
+    bin.linkSystemLibrary("opus");
+    bin.linkSystemLibrary("soxr");
 
-    // add system libraries for opus, libopusenc, and soxr from the pkg-config
-    exe.linkSystemLibrary("opus");
-    exe.linkSystemLibrary("libopusenc");
-    exe.linkSystemLibrary("soxr");
-
-    b.installArtifact(exe);
+    b.installArtifact(bin);
 }

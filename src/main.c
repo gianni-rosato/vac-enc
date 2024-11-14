@@ -1,172 +1,275 @@
-// Copyright (c) 2023 Gianni Rosato
-// Gifted by mr fan
+/*
+* vac-enc
+* Copyright (C) 2024 Gianni Rosato
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#if defined(_MSC_VER)
+# include <getopt.h>
+#else
+# include <unistd.h>
+#endif
+
+#include "unicode_support_wrapper.h"
 
 #include <opusenc.h>
 #include <soxr.h>
 
-#include "wavreader.h"
+#include "decode.h"
+#include "version.h"
 
-#define BUFFER_SAMPLES 96000
+typedef struct SoxBlock {
+    soxr_t resampler;
+    soxr_error_t soxerr;
+    soxr_io_spec_t io;
+} SoxBlock;
 
-typedef struct {
-  int Major;
-  int Minor;
-  int Patch;
-} semver_t;
+typedef struct OpusBlock {
+    OggOpusEnc *enc;
+    OggOpusComments *comments;
+    int opusencerr;
+} OpusBlock;
 
-const semver_t VAC_SEMVER = {0, 0, 1};
+int init_resampler(FileInfo info, SoxBlock *sb)
+{
+    soxr_quality_spec_t quality = { // Resampler quality settings
+        .precision      = 33,
+        .phase_response = 50,
+        .passband_end   = 0.913,
+        .stopband_begin = 1,
+        .e              = NULL,
+        .flags          = SOXR_ROLLOFF_NONE | SOXR_HI_PREC_CLOCK
+    };
 
-int main(int argc, char **argv) {
-  void *wav;
-  int format, sample_rate, channels, word_length;
-
-  soxr_t resampler;
-  soxr_error_t soxerr;
-  soxr_io_spec_t io;
-  soxr_quality_spec_t quality;
-
-  OggOpusEnc *enc;
-  OggOpusComments *comments;
-  int opusencerr;
-  const char *opusver = opus_get_version_string();
-  const char *opusencver = ope_get_version_string();
-
-  if (argc != 4) {
-    if (argc < 2) {
-      printf("\x1b[36mvac-enc\x1b[0m v%i.%i.%i\n", VAC_SEMVER.Major,
-             VAC_SEMVER.Minor, VAC_SEMVER.Patch);
-      printf("Usage: %s [input.wav] [output.ogg] [kb/s]\n", argv[0]);
-      return 1;
+    switch (info.bit_depth) {
+        case 8:
+        case 16:
+            sb->io = soxr_io_spec(SOXR_INT16_I, SOXR_FLOAT32_I);
+            break;
+        case 24:
+        case 32:
+            sb->io = (info.format == 1) ? soxr_io_spec(SOXR_INT32_I, SOXR_FLOAT32_I) :
+                                          soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+            break;
+        case 64:
+            if (info.format == 1) {
+                fprintf(stderr, "64-bit LPCM is unsupported. Use float instead.\n");
+                return 1;
+            } else {
+                sb->io = soxr_io_spec(SOXR_FLOAT64_I, SOXR_FLOAT32_I);
+            }
+            break;
+        default:
+            fprintf(stderr, "Unsupported word length: %d\n", info.bit_depth);
+            return 1;
     }
-    if (!strcmp("-h", argv[1]) || !strcmp("--help", argv[1])) {
-      printf("\x1b[36mvac-enc\x1b[0m v%i.%i.%i | Opus encoding using the SoX "
-             "resampler\n",
-             VAC_SEMVER.Major, VAC_SEMVER.Minor, VAC_SEMVER.Patch);
-      printf("\x1b[4mLibrary Versions\x1b[0m:\n");
-      printf("\tOpus: %s\n", opusver);
-      printf("\tOpusenc: %s\n", opusencver);
-      printf("\tSoXR: libsoxr %s\n", SOXR_THIS_VERSION_STR);
-      printf("\x1b[4mUsage\x1b[0m: %s [16-bit Little Endian WAVE input] "
-             "[output.ogg] [kb/s]\n",
-             argv[0]);
-      // printf("\x1b[4mOptions\x1b[0m:\n");
-      return 1;
-    } else if (!strcmp("-v", argv[1]) || !strcmp("--version", argv[1])) {
-      printf("\x1b[36mvac-enc\x1b[0m v%i.%i.%i |", VAC_SEMVER.Major,
-             VAC_SEMVER.Minor, VAC_SEMVER.Patch);
-      printf(" %s |", opusver);
-      printf(" %s |", opusencver);
-      printf(" libsoxr %s\n", SOXR_THIS_VERSION_STR);
-      printf("Maintained by Gianni Rosato & mrfan\n");
-      return 1;
+    if (!info.format) // FLAC override
+        sb->io = soxr_io_spec(SOXR_INT32_I, SOXR_FLOAT32_I);
+
+    sb->resampler = soxr_create(info.sample_rate, 48000, info.channels,
+                                &sb->soxerr, &sb->io, &quality, NULL);
+    if (!sb->resampler) {
+        fprintf(stderr, "Error initializing soxr: %s\n", sb->soxerr);
+        return 1;
     }
-  }
-  char *infile = argv[1];
-  wav = wav_read_open(infile);
-  if (!wav) {
-    fprintf(stderr, "Unable to open input file\n");
-    return 1;
-  }
-  if (!wav_get_header(wav, &format, &channels, &sample_rate, &word_length,
-                      NULL)) {
-    fprintf(stderr, "Bad wav file\n");
-    return 1;
-  }
-  if (format != 1 && format != 3) {
-    fprintf(stderr, "Only LPCM and floating-point samples are supported\n");
-    return 1;
-  }
-  switch (word_length) {
-  case 16:
-    io = soxr_io_spec(SOXR_INT16_I, SOXR_FLOAT32_I);
-    break;
-  case 32:
-    if (format == 1)
-      io = soxr_io_spec(SOXR_INT32_I, SOXR_FLOAT32_I);
-    else
-      io = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
-    break;
-  case 64:
-    if (format == 1) {
-      fprintf(stderr, "64-bit LPCM is unsupported; use float instead\n");
-      return 1;
-    } else
-      io = soxr_io_spec(SOXR_FLOAT64_I, SOXR_FLOAT32_I);
-    break;
-  default:
-    fprintf(stderr, "Unsupported word length: %d\n", word_length);
-    return 1;
-  }
 
-  quality.precision = 33;
-  quality.phase_response = 50;
-  quality.passband_end = 0.913;
-  quality.stopband_begin = 1;
-  quality.e = 0;
-  quality.flags = SOXR_ROLLOFF_NONE;
-  resampler =
-      soxr_create(sample_rate, 48000, channels, &soxerr, &io, &quality, NULL);
-  if (!resampler) {
-    fprintf(stderr, "Error initializing soxr: %s\n", soxerr);
-    return 1;
-  }
+    return 0;
+}
 
-  int mapping = 0;
-  if (channels > 2) {
-    // mapping = 1;
-    // fprintf(stderr, "Warning: surround audio must be mapped manually\n");
-    fprintf(
-        stderr,
-        "Surround encoding disabled for this build due to mapping issues\n");
-    return 1;
-  }
-  comments = ope_comments_create();
-  ope_comments_add(comments, "encoder", "vac-enc");
-  enc = ope_encoder_create_file(argv[2], comments, 48000, channels, mapping,
-                                &opusencerr);
-  if (!enc) {
-    fprintf(stderr, "Cannot write to output file: %s\n",
-            ope_strerror(opusencerr));
-    ope_comments_destroy(comments);
-    soxr_delete(resampler);
-    wav_read_close(wav);
-    return 1;
-  }
-  opusencerr =
-      ope_encoder_ctl(enc, OPUS_SET_BITRATE((int)(atof(argv[3]) * 1000)));
-  opusencerr = ope_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
-  opusencerr = ope_encoder_ctl(enc, OPE_SET_COMMENT_PADDING(0));
-  if (word_length < 24)
-    opusencerr = ope_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(word_length));
+int init_encoder(const char *outfile, FileInfo info, OpusBlock *ob, opus_int32 *bitrate,
+                        int have_bitrate, opus_int32 *lsb, int have_lsb, int vbr_mode, int *mapping)
+{
+    if (info.channels > 2)
+        *mapping = 1;
 
-  const int bytes_per_sample = word_length / 8;
-  const size_t ilen = BUFFER_SAMPLES / 48000 * sample_rate;
-  const size_t olen = BUFFER_SAMPLES;
-  size_t idone, odone;
-  void *ibuf = malloc(ilen * channels * bytes_per_sample);
-  void *obuf = malloc(olen * channels * 4); // Always float output
-  unsigned int read;
-  do {
-    read = wav_read_data(wav, ibuf, ilen * channels * bytes_per_sample);
-    soxerr = soxr_process(resampler, ibuf, read / channels / bytes_per_sample,
-                          &idone, obuf, olen, &odone);
-    opusencerr = ope_encoder_write_float(enc, obuf, odone);
-  } while (read > 0);
-  soxerr = soxr_process(resampler, NULL, 1, &idone, obuf, ilen + olen,
-                        &odone); // Fully drain soxr buffer
-  opusencerr = ope_encoder_write_float(enc, obuf, odone);
+    ob->comments = ope_comments_create();
+    ope_comments_add(ob->comments, "encoder", "vac-enc");
+    ob->enc = ope_encoder_create_file(outfile, ob->comments, 48000,
+                                      info.channels, *mapping, &ob->opusencerr);
+    if (!ob->enc) {
+        fprintf(stderr, "Cannot write to output file: %s\n", ope_strerror(ob->opusencerr));
+        return 1;
+    }
 
-  ope_encoder_drain(enc);
-  ope_encoder_destroy(enc);
-  ope_comments_destroy(comments);
-  free(obuf);
-  free(ibuf);
-  soxr_delete(resampler);
-  wav_read_close(wav);
+    if (!have_bitrate)
+        *bitrate = 1000*(64+32*info.channels);
+    if (*bitrate > 256000*info.channels || *bitrate < 6000) {
+        fprintf(stderr, "Bitrate out of range 6-%d kbps.\n", info.channels*256);
+        return 1;
+    }
+    ope_encoder_ctl(ob->enc, OPUS_SET_BITRATE(*bitrate));
+    if (vbr_mode > 2 || vbr_mode < 0) {
+        fprintf(stderr, "VBR mode must be 0 (CBR), 1 (CVBR), or 2 (VBR).\n");
+        return 1;
+    }
+    if (!vbr_mode) ope_encoder_ctl(ob->enc, OPUS_SET_VBR(0));
+    if (vbr_mode > 1) ope_encoder_ctl(ob->enc, OPUS_SET_VBR_CONSTRAINT(0));
+    ope_encoder_ctl(ob->enc, OPE_SET_COMMENT_PADDING(0));
+    ope_encoder_ctl(ob->enc, OPE_SET_MUXING_DELAY(0));
+    if (!have_lsb) *lsb = info.bit_depth > 24 ? 24 : info.bit_depth;
+    if (*lsb > 24 || *lsb < 8) {
+        fprintf(stderr, "LSB out of range 8-24.\n");
+        return 1;
+    }
+    ope_encoder_ctl(ob->enc, OPUS_SET_LSB_DEPTH(*lsb));
 
-  return 0;
+    return 0;
+}
+
+void usage(const char *path)
+{
+    fprintf(stderr, "vac-enc %s (using %s, %s, libsoxr %s)\n",
+            VAC_VERSION, opus_get_version_string(), ope_get_version_string(), SOXR_THIS_VERSION_STR);
+    fprintf(stderr, "Usage: %s [-b kbps] <WAVE/FLAC input> <Ogg Opus output>\n", path);
+}
+
+int main(int argc, char **argv)
+{
+    int ret;
+    int ch;
+    opus_int32 bitrate;
+    opus_int32 lsb;
+    int have_bitrate = 0;
+    int have_lsb = 0;
+    int vbr_mode = 2;
+    int mapping = 0;
+    FileInfo info;
+    SoxBlock sb;
+    OpusBlock ob;
+    size_t idone, odone;
+    void *ibuf, *obuf;
+    clock_t start, end;
+#ifdef WIN_UNICODE
+    int argc_utf8;
+    char **argv_utf8;
+
+    (void)argc;
+    (void)argv;
+    init_commandline_arguments_utf8(&argc_utf8, &argv_utf8);
+#endif
+
+    while ((ch = getopt(argc_utf8, argv_utf8, "b:l:v:")) != -1) {
+        switch (ch) {
+            case 'b':
+                bitrate = (opus_int32)(atof(optarg)*1000);
+                have_bitrate = 1;
+                break;
+            case 'l':
+                lsb = atoi(optarg);
+                have_lsb = 1;
+                break;
+            case 'v':
+                vbr_mode = atoi(optarg);
+                break;
+            case '?':
+            default:
+                usage(argv_utf8[0]);
+                return 1;
+        }
+    }
+    if (argc_utf8 - optind < 2) {
+        usage(argv_utf8[0]);
+        return 1;
+    }
+    if (!strcmp(argv_utf8[argc_utf8-1], "-") || !strcmp(argv_utf8[argc_utf8-2], "-")) {
+        fprintf(stderr, "stdin/stdout is not supported.\n");
+        return 1;
+    }
+    if (!strcmp(argv_utf8[argc_utf8-1], argv_utf8[argc_utf8-2])) {
+        fprintf(stderr, "Input and output file cannot be the same.\n");
+        return 1;
+    }
+
+    ret = vac_open_file(argv_utf8[argc_utf8-2], &info, &ibuf, &obuf);
+    if (ret)
+        return 1;
+
+    ret = init_resampler(info, &sb);
+    if (ret)
+        return 1;
+
+    ret = init_encoder(argv_utf8[argc_utf8-1], info, &ob, &bitrate,
+                       have_bitrate, &lsb, have_lsb, vbr_mode, &mapping);
+    if (ret)
+        return 1;
+
+    fprintf(stderr, "\n\tEncoding library  ::  %s\n", opus_get_version_string());
+    fprintf(stderr, "\n\tTarget bitrate    ::  %.3f kbps (%s)\n", (float)bitrate/1000,
+            vbr_mode < 2 ? (vbr_mode < 1 ? "CBR" : "CVBR") : "VBR");
+    fprintf(stderr, "\n\tSample rate       ::  ");
+    if (info.sample_rate != 48000) fprintf(stderr, "%.1f kHz -> ", (float)info.sample_rate/1000);
+    fprintf(stderr, "48.0 kHz\n\n");
+
+    start = clock();
+
+    while (1) { // Main encoding loop, maximum two seconds of 48 kHz audio per iteration
+        int samples;
+        static int tot_samples = 0;
+        static char *progress_bar[26] = {
+            "[                         ]", "[=                        ]",
+            "[==                       ]", "[===                      ]",
+            "[====                     ]", "[=====                    ]",
+            "[======                   ]", "[=======                  ]",
+            "[========                 ]", "[=========                ]",
+            "[==========               ]", "[===========              ]",
+            "[============             ]", "[=============            ]",
+            "[==============           ]", "[===============          ]",
+            "[================         ]", "[=================        ]",
+            "[==================       ]", "[===================      ]",
+            "[====================     ]", "[=====================    ]",
+            "[======================   ]", "[=======================  ]",
+            "[======================== ]", "[=========================]"
+        };
+
+        samples = (*vac_get_samples)(&info, ibuf);
+        soxr_process(sb.resampler, ibuf, samples/info.channels, &idone, obuf, info.olen, &odone);
+        ope_encoder_write_float(ob.enc, obuf, odone);
+
+        end = clock();
+        tot_samples += samples;
+        fprintf(stderr, "\r\tProcessing %s %3.0f%%, %3.fx realtime",
+                progress_bar[25*tot_samples/info.length], 99.99*tot_samples/info.length,
+                (float)tot_samples*CLOCKS_PER_SEC/((float)info.sample_rate*info.channels*(end-start)));
+
+        if (samples < info.ilen*info.channels)
+            break;
+    }
+    soxr_process(sb.resampler, NULL, 1, &idone, obuf, info.ilen+info.olen, &odone);
+    ope_encoder_write_float(ob.enc, obuf, odone); // Dirty hack to pad last frame
+
+    end = clock();
+    fprintf(stderr, "\r\tProcessing [=========================] 100%%, %3.fx realtime\n",
+           (float)info.length*CLOCKS_PER_SEC/((float)info.channels*info.sample_rate*(end-start)));
+#ifndef WIN_UNICODE // Because Windows terminal will do it regardless
+    fprintf(stderr, "\n");
+#endif
+
+    ope_encoder_drain(ob.enc);
+    ope_encoder_destroy(ob.enc);
+    ope_comments_destroy(ob.comments);
+    soxr_delete(sb.resampler);
+    free(obuf); free(ibuf);
+    vac_close_file(info.in, info.format);
+#ifdef WIN_UNICODE
+    free_commandline_arguments_utf8(&argc_utf8, &argv_utf8);
+#endif
+
+    return 0;
 }

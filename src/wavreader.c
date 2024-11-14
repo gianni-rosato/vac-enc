@@ -16,6 +16,8 @@
  * -------------------------------------------------------------------
  */
 
+#include "unicode_support_wrapper.h"
+
 #include "wavreader.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,7 +79,7 @@ void* wav_read_open(const char *filename) {
 	if (!strcmp(filename, "-"))
 		wr->wav = stdin;
 	else
-		wr->wav = fopen(filename, "rb");
+		wr->wav = fopen_utf8(filename, "rb");
 	if (wr->wav == NULL) {
 		free(wr);
 		return NULL;
